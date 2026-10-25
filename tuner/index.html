@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Headstock Tuner</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one narrow column like a clip-on tuner face: dial, readout, then the six strings in headstock order. */
+:root {
+  --bg: #e9ecef;
+  --panel: #fbfcfd;
+  --ink: #15181c;
+  --muted: #5d6570;
+  --line: #cfd5dc;
+  --accent: #a8701a;
+  --good: #1d8656;
+  --warn: #c0442b;
+  --font-display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111316; --panel: #1a1d21; --ink: #eceef1; --muted: #98a0aa;
+    --line: #2d3238; --accent: #e3a843; --good: #3fcf8f; --warn: #f06c50;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111316; --panel: #1a1d21; --ink: #eceef1; --muted: #98a0aa;
+  --line: #2d3238; --accent: #e3a843; --good: #3fcf8f; --warn: #f06c50;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 var(--font-body);
+  -webkit-tap-highlight-color: transparent;
+}
+.app {
+  max-width: 480px;
+  margin: 0 auto;
+  padding-block: 20px 36px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.brand {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 26px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin: 0;
+}
+.status {
+  font: 500 12px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.status::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--muted);
+}
+.status.live { color: var(--ink); }
+.status.live::before { background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent); }
+.status.err::before { background: var(--warn); }
+
+.face {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 18px 16px 20px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.dial { width: 100%; max-width: 360px; height: auto; display: block; }
+.dial .tick { stroke: var(--muted); stroke-width: 1.5; }
+.dial .tick.major { stroke: var(--ink); stroke-width: 2.5; }
+.dial .lbl { fill: var(--muted); font: 500 11px var(--font-mono); text-anchor: middle; }
+.dial .zone { stroke: var(--good); stroke-width: 8; fill: none; stroke-linecap: round; opacity: .35; }
+.dial .needle { stroke: var(--accent); stroke-width: 3.5; stroke-linecap: round; }
+.dial .hub { fill: var(--accent); }
+.dial.idle .needle, .dial.idle .hub { opacity: .35; }
+.dial.intune .needle, .dial.intune .hub { stroke: var(--good); fill: var(--good); }
+.dial.intune .zone { opacity: .8; }
+
+.note {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 104px;
+  line-height: .9;
+  margin-top: -8px;
+  display: flex; align-items: flex-start;
+  transition: color .2s;
+}
+.note sub {
+  font-size: 30px; font-weight: 600; color: var(--muted);
+  vertical-align: baseline; margin-left: 4px; margin-top: 52px;
+}
+.note.intune { color: var(--good); }
+.note.idle { color: var(--muted); }
+.hint {
+  font: 600 13px/1.2 var(--font-body);
+  letter-spacing: .08em; text-transform: uppercase;
+  min-height: 1.2em; color: var(--muted);
+}
+.hint.up, .hint.down { color: var(--warn); }
+.hint.ok { color: var(--good); }
+.readout {
+  display: flex; gap: 18px; justify-content: center; flex-wrap: wrap;
+  font: 400 13px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.readout b { color: var(--ink); font-weight: 500; }
+
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.go {
+  margin-top: 14px;
+  width: 100%; max-width: 280px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  border: none;
+  background: var(--ink);
+  color: var(--panel);
+  font-weight: 600; font-size: 16px;
+}
+.go.on { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+.msg { font-size: 13px; color: var(--warn); text-align: center; max-width: 36ch; margin: 8px 0 0; }
+
+.controls { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field label, .strings-head {
+  font: 500 11px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+}
+select {
+  width: 100%;
+  font: 500 15px var(--font-body);
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.stepper { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.stepper button { border: none; background: none; width: 38px; height: 42px; font-size: 18px; }
+.stepper output { font: 500 14px var(--font-mono); font-variant-numeric: tabular-nums; min-width: 4.5ch; text-align: center; }
+
+.strings-head { display: flex; justify-content: space-between; }
+.strings { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.str {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 8px 0 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  transition: border-color .15s, background .15s;
+}
+.str small { font: 500 10px var(--font-mono); color: var(--muted); }
+.str span { font: 800 26px/1 var(--font-display); }
+.str.near { border-color: var(--accent); }
+.str.near span { color: var(--accent); }
+.str.lock { background: var(--ink); border-color: var(--ink); }
+.str.lock span, .str.lock small { color: var(--panel); }
+.str.done::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--good); margin-top: 2px; }
+.str:not(.done)::after { content: ""; width: 6px; height: 6px; margin-top: 2px; }
+.foot { font-size: 13px; color: var(--muted); margin: 0; max-width: 60ch; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1 class="brand">Headstock</h1>
+    <span class="status" id="status">Mic off</span>
+  </header>
+
+  <section class="face" aria-live="polite">
+    <svg class="dial idle" id="dial" viewBox="0 0 300 172" role="img" aria-label="Tuning meter, flat to sharp">
+      <g id="ticks"></g>
+      <g id="needle">
+        <line class="needle" x1="150" y1="160" x2="150" y2="44"></line>
+      </g>
+      <circle class="hub" cx="150" cy="160" r="7"></circle>
+    </svg>
+    <div class="note idle" id="note">E<sub id="oct">2</sub></div>
+    <div class="hint" id="hint">Pluck a string</div>
+    <div class="readout">
+      <span><b id="hz">—</b> Hz</span>
+      <span><b id="cents">—</b> cents</span>
+    </div>
+    <button class="go" id="go" type="button">Start tuning</button>
+    <p class="msg" id="msg" hidden></p>
+  </section>
+
+  <div class="controls">
+    <div class="field">
+      <label for="tuning">Tuning</label>
+      <select id="tuning"></select>
+    </div>
+    <div class="field">
+      <label for="a4">A4 pitch</label>
+      <div class="stepper">
+        <button type="button" id="a4down" aria-label="Lower A4">−</button>
+        <output id="a4">440</output>
+        <button type="button" id="a4up" aria-label="Raise A4">+</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="field">
+    <div class="strings-head"><span>Strings · low to high</span><span id="mode">Auto</span></div>
+    <div class="strings" id="strings"></div>
+  </div>
+
+  <p class="foot">Tap a string to hear its reference pitch and lock the meter to it. Tap it again to go back to auto. A green dot marks each string you've brought within 5 cents.</p>
+</div>
+
+<script>
+(() => {
+  const NOTES = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
+  // MIDI note numbers, string 6 (low) to string 1 (high)
+  const TUNINGS = {
+    standard: { name: 'Standard (E A D G B E)', notes: [40,45,50,55,59,64] },
+    dropd:    { name: 'Drop D (D A D G B E)', notes: [38,45,50,55,59,64] },
+    halfdown: { name: 'Half step down (E♭)', notes: [39,44,49,54,58,63] },
+    dstd:     { name: 'Full step down (D)', notes: [38,43,48,53,57,62] },
+    dadgad:   { name: 'DADGAD', notes: [38,45,50,55,57,62] },
+    openg:    { name: 'Open G (D G D G B D)', notes: [38,43,50,55,59,62] },
+    opend:    { name: 'Open D (D A D F♯ A D)', notes: [38,45,50,54,57,62] },
+    opene:    { name: 'Open E (E B E G♯ B E)', notes: [40,47,52,56,59,64] },
+    chromatic:{ name: 'Chromatic (any note)', notes: [40,45,50,55,59,64], chromatic: true }
+  };
+
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('headstock.' + k); return v == null ? d : v; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem('headstock.' + k, v); } catch {} }
+  };
+
+  let a4 = Number(store.get('a4', 440)) || 440;
+  let tuningKey = TUNINGS[store.get('tuning', 'standard')] ? store.get('tuning', 'standard') : 'standard';
+  let locked = null;          // index of locked string, or null for auto
+  let done = new Set();       // strings brought in tune this session
+
+  const $ = id => document.getElementById(id);
+  const el = {
+    dial: $('dial'), ticks: $('ticks'), needle: $('needle'), note: $('note'), oct: $('oct'),
+    hint: $('hint'), hz: $('hz'), cents: $('cents'), go: $('go'), msg: $('msg'), status: $('status'),
+    tuning: $('tuning'), a4: $('a4'), strings: $('strings'), mode: $('mode')
+  };
+
+  const freqOf = m => a4 * Math.pow(2, (m - 69) / 12);
+  const midiOf = f => 69 + 12 * Math.log2(f / a4);
+  const nameOf = m => NOTES[((m % 12) + 12) % 12];
+  const octOf = m => Math.floor(m / 12) - 1;
+
+  // ---- Dial ----
+  const CX = 150, CY = 160, R = 128, SWEEP = 70; // ±50 cents maps to ±70°
+  const angle = c => (Math.max(-50, Math.min(50, c)) / 50) * SWEEP;
+  const pt = (deg, r) => { const a = deg * Math.PI / 180; return [CX + r * Math.sin(a), CY - r * Math.cos(a)]; };
+  (function drawDial() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const [zx1, zy1] = pt(angle(-5), R + 6), [zx2, zy2] = pt(angle(5), R + 6);
+    const zone = document.createElementNS(ns, 'path');
+    zone.setAttribute('class', 'zone');
+    zone.setAttribute('d', `M${zx1} ${zy1} A${R + 6} ${R + 6} 0 0 1 ${zx2} ${zy2}`);
+    el.ticks.appendChild(zone);
+    for (let c = -50; c <= 50; c += 5) {
+      const major = c % 25 === 0;
+      const [x1, y1] = pt(angle(c), major ? R - 16 : R - 8);
+      const [x2, y2] = pt(angle(c), R);
+      const ln = document.createElementNS(ns, 'line');
+      ln.setAttribute('class', 'tick' + (major ? ' major' : ''));
+      ln.setAttribute('x1', x1); ln.setAttribute('y1', y1); ln.setAttribute('x2', x2); ln.setAttribute('y2', y2);
+      el.ticks.appendChild(ln);
+      if (major) {
+        const [tx, ty] = pt(angle(c), R - 30);
+        const t = document.createElementNS(ns, 'text');
+        t.setAttribute('class', 'lbl'); t.setAttribute('x', tx); t.setAttribute('y', ty + 4);
+        t.textContent = c === 0 ? '0' : (c > 0 ? '+' + c : '−' + -c);
+        el.ticks.appendChild(t);
+      }
+    }
+    const ns2 = (txt, c) => {
+      const [tx, ty] = pt(angle(c), R + 22);
+      const t = document.createElementNS(ns, 'text');
+      t.setAttribute('class', 'lbl'); t.setAttribute('x', tx); t.setAttribute('y', ty + 4);
+      t.textContent = txt; el.ticks.appendChild(t);
+    };
+    ns2('♭', -50); ns2('♯', 50);
+  })();
+  const setNeedle = c => el.needle.setAttribute('transform', `rotate(${angle(c).toFixed(2)} ${CX} ${CY})`);
+
+  // ---- Controls ----
+  for (const [k, t] of Object.entries(TUNINGS)) {
+    const o = document.createElement('option'); o.value = k; o.textContent = t.name; el.tuning.appendChild(o);
+  }
+  el.tuning.value = tuningKey;
+  el.tuning.addEventListener('change', () => {
+    tuningKey = el.tuning.value; store.set('tuning', tuningKey);
+    locked = null; done.clear(); renderStrings(); showIdle();
+  });
+  const setA4 = v => { a4 = Math.max(415, Math.min(466, v)); el.a4.textContent = a4; store.set('a4', a4); done.clear(); renderStrings(); };
+  $('a4down').addEventListener('click', () => setA4(a4 - 1));
+  $('a4up').addEventListener('click', () => setA4(a4 + 1));
+  el.a4.textContent = a4;
+
+  function renderStrings() {
+    const notes = TUNINGS[tuningKey].notes;
+    el.strings.innerHTML = '';
+    notes.forEach((m, i) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'str';
+      b.setAttribute('aria-label', `String ${6 - i}, ${nameOf(m)}${octOf(m)}, ${freqOf(m).toFixed(1)} hertz`);
+      b.innerHTML = `<small>${6 - i}</small><span>${nameOf(m)}</span><small>${freqOf(m).toFixed(0)}</small>`;
+      b.addEventListener('click', () => {
+        locked = locked === i ? null : i;
+        if (locked !== null) pluck(freqOf(m));
+        updateStringStates(null);
+      });
+      el.strings.appendChild(b);
+    });
+    updateStringStates(null);
+  }
+  function updateStringStates(nearIdx) {
+    [...el.strings.children].forEach((b, i) => {
+      b.classList.toggle('lock', locked === i);
+      b.classList.toggle('near', locked === null && nearIdx === i);
+      b.classList.toggle('done', done.has(i));
+      b.setAttribute('aria-pressed', locked === i ? 'true' : 'false');
+    });
+    el.mode.textContent = locked === null ? 'Auto' : `Locked · string ${6 - locked}`;
+  }
+
+  // ---- Reference tone ----
+  let ctx = null;
+  const ensureCtx = () => { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); if (ctx.state === 'suspended') ctx.resume(); return ctx; };
+  function pluck(f) {
+    try {
+      const c = ensureCtx(), t = c.currentTime;
+      const g = c.createGain(), lp = c.createBiquadFilter();
+      lp.type = 'lowpass'; lp.frequency.setValueAtTime(f * 6, t); lp.frequency.exponentialRampToValueAtTime(f * 1.5, t + 2);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.4, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 2.6);
+      lp.connect(g).connect(c.destination);
+      [[1, 'triangle', 1], [2, 'sine', .35], [3, 'sine', .15]].forEach(([h, type, amp]) => {
+        const o = c.createOscillator(), og = c.createGain();
+        o.type = type; o.frequency.value = f * h; og.gain.value = amp;
+        o.connect(og).connect(lp); o.start(t); o.stop(t + 2.7);
+      });
+    } catch {}
+  }
+
+  // ---- Pitch detection (YIN) ----
+  function yin(buf, sr) {
+    let rms = 0;
+    for (let i = 0; i < buf.length; i++) rms += buf[i] * buf[i];
+    rms = Math.sqrt(rms / buf.length);
+    if (rms < 0.008) return { f: -1, rms };
+    const tauMin = Math.floor(sr / 1200), tauMax = Math.min(Math.floor(sr / 60), buf.length >> 1);
+    const W = buf.length - tauMax;
+    const d = new Float32Array(tauMax + 1);
+    for (let tau = 1; tau <= tauMax; tau++) {
+      let s = 0;
+      for (let j = 0; j < W; j++) { const x = buf[j] - buf[j + tau]; s += x * x; }
+      d[tau] = s;
+    }
+    // cumulative mean normalized difference
+    let run = 0; d[0] = 1;
+    for (let tau = 1; tau <= tauMax; tau++) { run += d[tau]; d[tau] = run ? d[tau] * tau / run : 1; }
+    let tau = -1;
+    for (let t = tauMin; t <= tauMax; t++) {
+      if (d[t] < 0.12) { while (t + 1 <= tauMax && d[t + 1] < d[t]) t++; tau = t; break; }
+    }
+    if (tau < 0) return { f: -1, rms };
+    // parabolic interpolation
+    let better = tau;
+    if (tau > 1 && tau < tauMax) {
+      const a = d[tau - 1], b = d[tau], c = d[tau + 1], den = a + c - 2 * b;
+      if (den) better = tau + (a - c) / (2 * den);
+    }
+    return { f: sr / better, rms };
+  }
+
+  // ---- Main loop ----
+  let stream = null, analyser = null, buf = null, raf = 0, wake = null;
+  let hist = [], shown = 0, lastHeard = 0, inTuneSince = 0;
+
+  async function start() {
+    el.msg.hidden = true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return micError('This page needs a secure (https) link to use the microphone. You can still tap a string to hear its pitch.');
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    } catch (e) {
+      return micError(e && e.name === 'NotAllowedError'
+        ? 'Microphone access was blocked. Allow it in your browser settings, or tap a string to tune by ear.'
+        : 'No microphone is available here. Tap a string to tune by ear.');
+    }
+    const c = ensureCtx();
+    analyser = c.createAnalyser();
+    analyser.fftSize = 4096;
+    c.createMediaStreamSource(stream).connect(analyser);
+    buf = new Float32Array(analyser.fftSize);
+    el.go.textContent = 'Stop'; el.go.classList.add('on');
+    el.status.textContent = 'Listening'; el.status.className = 'status live';
+    try { wake = await navigator.wakeLock?.request('screen'); } catch {}
+    loop();
+  }
+  function stop() {
+    cancelAnimationFrame(raf);
+    stream?.getTracks().forEach(t => t.stop());
+    stream = null; analyser = null;
+    try { wake?.release(); } catch {} wake = null;
+    el.go.textContent = 'Start tuning'; el.go.classList.remove('on');
+    el.status.textContent = 'Mic off'; el.status.className = 'status';
+    showIdle();
+  }
+  function micError(text) {
+    el.msg.textContent = text; el.msg.hidden = false;
+    el.status.textContent = 'No mic'; el.status.className = 'status err';
+  }
+  el.go.addEventListener('click', () => stream ? stop() : start());
+
+  function showIdle() {
+    const notes = TUNINGS[tuningKey].notes;
+    const m = locked !== null ? notes[locked] : notes[0];
+    el.note.firstChild.nodeValue = nameOf(m); el.oct.textContent = octOf(m);
+    el.note.className = 'note idle'; el.dial.setAttribute('class', 'dial idle');
+    el.hint.textContent = stream ? 'Pluck a string' : 'Press start, then pluck'; el.hint.className = 'hint';
+    el.hz.textContent = '—'; el.cents.textContent = '—';
+    hist = []; inTuneSince = 0;
+    updateStringStates(null);
+  }
+
+  function loop() {
+    raf = requestAnimationFrame(loop);
+    analyser.getFloatTimeDomainData(buf);
+    const { f } = yin(buf, ctx.sampleRate);
+    const now = performance.now();
+
+    if (f > 0) {
+      lastHeard = now;
+      hist.push(f); if (hist.length > 7) hist.shift();
+      const freq = [...hist].sort((a, b) => a - b)[hist.length >> 1];
+      const m = midiOf(freq);
+      const t = TUNINGS[tuningKey];
+      let target, idx = null;
+      if (locked !== null) { idx = locked; target = t.notes[idx]; }
+      else if (t.chromatic) { target = Math.round(m); }
+      else {
+        let best = Infinity;
+        t.notes.forEach((n, i) => { const dd = Math.abs(m - n); if (dd < best) { best = dd; idx = i; } });
+        target = t.notes[idx];
+      }
+      const cents = (m - target) * 100;
+      shown += (Math.max(-60, Math.min(60, cents)) - shown) * 0.22;
+      setNeedle(shown);
+
+      el.note.firstChild.nodeValue = nameOf(target); el.oct.textContent = octOf(target);
+      el.hz.textContent = freq.toFixed(1);
+      el.cents.textContent = (cents > 0 ? '+' : cents < 0 ? '−' : '') + Math.abs(cents).toFixed(0);
+
+      const ok = Math.abs(cents) <= 5;
+      if (ok) { if (!inTuneSince) inTuneSince = now; } else inTuneSince = 0;
+      const settled = ok && now - inTuneSince > 500;
+      if (settled && idx !== null) done.add(idx);
+
+      el.note.className = 'note' + (settled ? ' intune' : '');
+      el.dial.setAttribute('class', 'dial' + (settled ? ' intune' : ''));
+      if (ok) { el.hint.textContent = 'In tune'; el.hint.className = 'hint ok'; }
+      else if (cents < 0) { el.hint.textContent = cents < -50 ? 'Way flat · tune up ↑' : 'Flat · tune up ↑'; el.hint.className = 'hint up'; }
+      else { el.hint.textContent = cents > 50 ? 'Way sharp · tune down ↓' : 'Sharp · tune down ↓'; el.hint.className = 'hint down'; }
+      updateStringStates(idx);
+    } else if (now - lastHeard > 900) {
+      if (hist.length) showIdle();
+      shown += (0 - shown) * 0.08;
+      setNeedle(shown);
+    }
+  }
+
+  renderStrings();
+  setNeedle(0);
+  showIdle();
+})();
+</script>
+</body>
+</html>
